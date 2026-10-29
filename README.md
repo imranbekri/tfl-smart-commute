@@ -11,7 +11,8 @@ Quickly see live status for Tube, Overground, Elizabeth line and DLR, and check 
 - [x] Save, edit and delete personal journeys
 - [x] Live status shown for the lines used by each saved journey
 - [x] Clear indicator showing whether each saved journey is affected
-- [x] Persistent storage with SQLite (new journeys)
+- [x] Persistent storage with SQLite
+- [x] Load journeys from SQLite on startup
 
 ## Tech Stack
 
@@ -35,7 +36,7 @@ uvicorn app.main:app --reload
 
 Then open http://127.0.0.1:8000
 
-**Note:** Newly created journeys are stored in a local SQLite database (`journeys.db`) and survive server restarts. Edit and delete currently update the in-memory view only.
+**Note:** Journeys are stored in a local SQLite database (`journeys.db`). They are loaded from the database when the application starts and survive server restarts. Edit and delete currently update the in-memory view only.
 
 ## Project Structure
 
