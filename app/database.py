@@ -50,6 +50,25 @@ def add_journey_to_db(name: str, origin: str, destination: str, lines: list[str]
         conn.close()
 
 
+def update_journey_in_db(journey_id: int, name: str, origin: str, destination: str, lines: list[str]) -> None:
+    """Update an existing journey in the SQLite database."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        lines_str = ",".join(lines)
+        cursor.execute(
+            """
+            UPDATE journeys
+            SET name = ?, origin = ?, destination = ?, lines = ?
+            WHERE id = ?
+            """,
+            (name, origin, destination, lines_str, journey_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def delete_journey_from_db(journey_id: int) -> None:
     """Delete a journey from the SQLite database by its id."""
     conn = get_connection()
