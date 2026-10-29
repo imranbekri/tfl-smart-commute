@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.tfl import get_line_statuses, TfLError, TfLTimeoutError, TfLUnavailableError
-from app.database import init_db, add_journey_to_db, get_all_journeys, delete_journey_from_db
+from app.database import init_db, add_journey_to_db, get_all_journeys, delete_journey_from_db, update_journey_in_db
 
 app = FastAPI(title="TfL Smart Commute")
 templates = Jinja2Templates(directory="app/templates")
@@ -207,17 +207,10 @@ async def add_journey(
             status_code=400,
         )
 
-    # Persist to SQLite and keep the returned id
-    journey_id = add_journey_to_db(name, origin, destination, lines_list)
-    journey = {
-        "id": journey_id,
-        "name": name,
-        "origin": origin,
-        "destination": destination,
-        "lines": lines_list,
-    }
-    # Also keep in-memory list in sync for the current session
-    journeys.append(journey)
+    # Persist to SQLite
+    add_journey_to_db(name, origin, destination, lines_list)
+    # Reload full list from DB so in-memory cache stays in sync
+    journeys[:] = get_all_journeys()
     return RedirectResponse(url="/?saved=1", status_code=303)
 
 
@@ -230,7 +223,8 @@ async def delete_journey(index: int = Form(...)):
             journey_id = journey.get("id")
             if journey_id is not None:
                 delete_journey_from_db(journey_id)
-            journeys.pop(index)
+            # Reload full list from DB so in-memory cache stays in sync
+            journeys[:] = get_all_journeys()
     except (ValueError, IndexError):
         pass  # Ignore invalid indices
     return RedirectResponse(url="/?deleted=1", status_code=303)
@@ -292,8 +286,10 @@ async def edit_journey(
             status_code=400,
         )
 
-    journeys[index]["name"] = name
-    journeys[index]["origin"] = origin
-    journeys[index]["destination"] = destination
-    journeys[index]["lines"] = lines_list
+    journey = journeys[index]
+    journey_id = journey.get("id")
+    if journey_id is not None:
+        update_journey_in_db(journey_id, name, origin, destination, lines_list)
+    # Reload full list from DB so in-memory cache stays in sync
+    journeys[:] = get_all_journeys()
     return RedirectResponse(url="/?edited=1", status_code=303)
