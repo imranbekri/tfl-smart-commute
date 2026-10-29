@@ -5,11 +5,15 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.tfl import get_line_statuses, TfLError, TfLTimeoutError, TfLUnavailableError
+from app.database import init_db
 
 app = FastAPI(title="TfL Smart Commute")
 templates = Jinja2Templates(directory="app/templates")
 
-# Simple in-memory store for journeys (resets on restart)
+# Initialise the SQLite database and journeys table on startup
+init_db()
+
+# Simple in-memory store for journeys (will be replaced by SQLite)
 journeys: list[dict] = []
 
 
