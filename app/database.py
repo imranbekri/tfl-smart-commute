@@ -34,8 +34,8 @@ def init_db() -> None:
         conn.close()
 
 
-def add_journey_to_db(name: str, origin: str, destination: str, lines: list[str]) -> None:
-    """Insert a new journey into the SQLite database."""
+def add_journey_to_db(name: str, origin: str, destination: str, lines: list[str]) -> int:
+    """Insert a new journey into the SQLite database and return its id."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -44,6 +44,18 @@ def add_journey_to_db(name: str, origin: str, destination: str, lines: list[str]
             "INSERT INTO journeys (name, origin, destination, lines) VALUES (?, ?, ?, ?)",
             (name, origin, destination, lines_str),
         )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def delete_journey_from_db(journey_id: int) -> None:
+    """Delete a journey from the SQLite database by its id."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM journeys WHERE id = ?", (journey_id,))
         conn.commit()
     finally:
         conn.close()

@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.tfl import get_line_statuses, TfLError, TfLTimeoutError, TfLUnavailableError
-from app.database import init_db, add_journey_to_db, get_all_journeys
+from app.database import init_db, add_journey_to_db, get_all_journeys, delete_journey_from_db
 
 app = FastAPI(title="TfL Smart Commute")
 templates = Jinja2Templates(directory="app/templates")
@@ -207,14 +207,15 @@ async def add_journey(
             status_code=400,
         )
 
+    # Persist to SQLite and keep the returned id
+    journey_id = add_journey_to_db(name, origin, destination, lines_list)
     journey = {
+        "id": journey_id,
         "name": name,
         "origin": origin,
         "destination": destination,
         "lines": lines_list,
     }
-    # Persist to SQLite
-    add_journey_to_db(name, origin, destination, lines_list)
     # Also keep in-memory list in sync for the current session
     journeys.append(journey)
     return RedirectResponse(url="/?saved=1", status_code=303)
@@ -222,9 +223,13 @@ async def add_journey(
 
 @app.post("/delete-journey")
 async def delete_journey(index: int = Form(...)):
-    """Remove a journey from memory by its list index."""
+    """Remove a journey from the SQLite database and the in-memory cache."""
     try:
         if 0 <= index < len(journeys):
+            journey = journeys[index]
+            journey_id = journey.get("id")
+            if journey_id is not None:
+                delete_journey_from_db(journey_id)
             journeys.pop(index)
     except (ValueError, IndexError):
         pass  # Ignore invalid indices
