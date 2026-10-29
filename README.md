@@ -8,10 +8,10 @@ Quickly see live status for Tube, Overground, Elizabeth line and DLR, and check 
 
 - [x] Live TfL line status with clean summary and detailed list
 - [x] Filter: All lines / Disruptions only
-- [x] Save, edit and delete personal journeys (in-memory)
+- [x] Save, edit and delete personal journeys
 - [x] Live status shown for the lines used by each saved journey
 - [x] Clear indicator showing whether each saved journey is affected
-- [ ] Persistent storage with SQLite (planned)
+- [x] Persistent storage with SQLite (new journeys)
 
 ## Tech Stack
 
@@ -19,6 +19,7 @@ Quickly see live status for Tube, Overground, Elizabeth line and DLR, and check 
 - FastAPI
 - Jinja2
 - httpx (TfL API)
+- SQLite
 - TfL Unified API
 
 ## Getting Started
@@ -27,14 +28,14 @@ Quickly see live status for Tube, Overground, Elizabeth line and DLR, and check 
 git clone https://github.com/imranbek22-afk/tfl-smart-commute.git
 cd tfl-smart-commute
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
 Then open http://127.0.0.1:8000
 
-**Note:** Saved journeys are stored in memory and reset when the server restarts.
+**Note:** Newly created journeys are stored in a local SQLite database (`journeys.db`) and survive server restarts. Edit and delete currently update the in-memory view only.
 
 ## Project Structure
 
@@ -42,6 +43,7 @@ Then open http://127.0.0.1:8000
 tfl-smart-commute/
 ├── app/
 │   ├── main.py
+│   ├── database.py
 │   ├── tfl.py
 │   └── templates/
 │       └── index.html

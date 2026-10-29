@@ -23,10 +23,50 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS journeys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
+                origin TEXT NOT NULL,
+                destination TEXT NOT NULL,
                 lines TEXT NOT NULL
             )
             """
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def add_journey_to_db(name: str, origin: str, destination: str, lines: list[str]) -> None:
+    """Insert a new journey into the SQLite database."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        lines_str = ",".join(lines)
+        cursor.execute(
+            "INSERT INTO journeys (name, origin, destination, lines) VALUES (?, ?, ?, ?)",
+            (name, origin, destination, lines_str),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_all_journeys() -> list[dict]:
+    """Load all journeys from the database."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, origin, destination, lines FROM journeys ORDER BY id")
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            result.append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "origin": row["origin"],
+                    "destination": row["destination"],
+                    "lines": [ln.strip() for ln in (row["lines"] or "").split(",") if ln.strip()],
+                }
+            )
+        return result
     finally:
         conn.close()

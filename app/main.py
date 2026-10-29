@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.tfl import get_line_statuses, TfLError, TfLTimeoutError, TfLUnavailableError
-from app.database import init_db
+from app.database import init_db, add_journey_to_db, get_all_journeys
 
 app = FastAPI(title="TfL Smart Commute")
 templates = Jinja2Templates(directory="app/templates")
@@ -13,8 +13,8 @@ templates = Jinja2Templates(directory="app/templates")
 # Initialise the SQLite database and journeys table on startup
 init_db()
 
-# Simple in-memory store for journeys (will be replaced by SQLite)
-journeys: list[dict] = []
+# Load existing journeys from SQLite (in-memory cache for the session)
+journeys: list[dict] = get_all_journeys()
 
 
 def _severity_from_description(desc: str) -> str:
@@ -155,7 +155,7 @@ async def add_journey(
     destination: str = Form(...),
     lines: str = Form(""),
 ):
-    """Store a new journey in memory with validation."""
+    """Store a new journey in the SQLite database (and in-memory cache)."""
     name = name.strip()
     origin = origin.strip()
     destination = destination.strip()
@@ -213,6 +213,9 @@ async def add_journey(
         "destination": destination,
         "lines": lines_list,
     }
+    # Persist to SQLite
+    add_journey_to_db(name, origin, destination, lines_list)
+    # Also keep in-memory list in sync for the current session
     journeys.append(journey)
     return RedirectResponse(url="/?saved=1", status_code=303)
 
