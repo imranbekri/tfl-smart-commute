@@ -215,25 +215,21 @@ async def add_journey(
 
 
 @app.post("/delete-journey")
-async def delete_journey(index: int = Form(...)):
-    """Remove a journey from the SQLite database and the in-memory cache."""
+async def delete_journey(id: int = Form(...)):
+    """Remove a journey from the SQLite database and the in-memory cache by id."""
     try:
-        if 0 <= index < len(journeys):
-            journey = journeys[index]
-            journey_id = journey.get("id")
-            if journey_id is not None:
-                delete_journey_from_db(journey_id)
-            # Reload full list from DB so in-memory cache stays in sync
-            journeys[:] = get_all_journeys()
-    except (ValueError, IndexError):
-        pass  # Ignore invalid indices
+        delete_journey_from_db(id)
+        # Reload full list from DB so in-memory cache stays in sync
+        journeys[:] = get_all_journeys()
+    except Exception:
+        pass  # Ignore invalid ids
     return RedirectResponse(url="/?deleted=1", status_code=303)
 
 
 @app.post("/edit-journey")
 async def edit_journey(
     request: Request,
-    index: int = Form(...),
+    id: int = Form(...),
     name: str = Form(...),
     origin: str = Form(...),
     destination: str = Form(...),
@@ -247,7 +243,8 @@ async def edit_journey(
 
     form_errors: list[str] = []
 
-    if not (0 <= index < len(journeys)):
+    existing = get_journey_by_id(id)
+    if not existing:
         form_errors.append("Invalid journey.")
     if len(name) < 2:
         form_errors.append("Journey name must be at least 2 characters.")
@@ -273,19 +270,14 @@ async def edit_journey(
         enriched = enrich_journeys(journeys, status_lookup)
         last_updated = datetime.now().strftime("%H:%M")
 
-        # Load the specific journey from SQLite to prefill the edit form
-        edit_data = None
-        edit_index = index
-        if 0 <= index < len(journeys):
-            jid = journeys[index].get("id")
-            if jid is not None:
-                edit_data = get_journey_by_id(jid)
-                if edit_data:
-                    # Override with the submitted (invalid) values so user sees what they typed
-                    edit_data["name"] = name
-                    edit_data["origin"] = origin
-                    edit_data["destination"] = destination
-                    edit_data["lines"] = lines_list
+        # Prefill the edit form with the submitted (invalid) values
+        edit_data = {
+            "id": id,
+            "name": name,
+            "origin": origin,
+            "destination": destination,
+            "lines": lines_list,
+        }
 
         return templates.TemplateResponse(
             "index.html",
@@ -296,23 +288,16 @@ async def edit_journey(
                 "journeys": enriched,
                 "form_errors": form_errors,
                 "edit_data": edit_data,
-                "edit_index": edit_index,
+                "edit_id": id,
                 "last_updated": last_updated,
             },
             status_code=400,
         )
 
-    journey = journeys[index]
-    journey_id = journey.get("id")
-    if journey_id is not None:
-        # Explicitly load from SQLite before update to confirm it exists
-        existing = get_journey_by_id(journey_id)
-        if existing:
-            rows = update_journey_in_db(journey_id, name, origin, destination, lines_list)
-            if rows == 0:
-                # Should not happen, but keep cache consistent
-                journeys[:] = get_all_journeys()
-                return RedirectResponse(url="/?edited=0", status_code=303)
+    # Update in DB
+    rows = update_journey_in_db(id, name, origin, destination, lines_list)
     # Reload full list from DB so in-memory cache stays in sync
     journeys[:] = get_all_journeys()
+    if rows == 0:
+        return RedirectResponse(url="/?edited=0", status_code=303)
     return RedirectResponse(url="/?edited=1", status_code=303)

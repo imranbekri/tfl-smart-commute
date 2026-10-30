@@ -36,7 +36,7 @@ uvicorn app.main:app --reload
 
 Then open http://127.0.0.1:8000
 
-**Note:** Journeys are stored in a local SQLite database (`journeys.db`). They are loaded from the database when the application starts and survive server restarts. New journeys are saved to the database, and deleted journeys are removed from it. Edits are also saved to the database.
+**Note:** Journeys are stored in a local SQLite database (`journeys.db`). They are loaded from the database when the application starts and survive server restarts. New journeys are saved to the database, deleted journeys are removed from it, and edits are saved to the database.
 
 ## Project Structure
 
