@@ -308,7 +308,11 @@ async def edit_journey(
         # Explicitly load from SQLite before update to confirm it exists
         existing = get_journey_by_id(journey_id)
         if existing:
-            update_journey_in_db(journey_id, name, origin, destination, lines_list)
+            rows = update_journey_in_db(journey_id, name, origin, destination, lines_list)
+            if rows == 0:
+                # Should not happen, but keep cache consistent
+                journeys[:] = get_all_journeys()
+                return RedirectResponse(url="/?edited=0", status_code=303)
     # Reload full list from DB so in-memory cache stays in sync
     journeys[:] = get_all_journeys()
     return RedirectResponse(url="/?edited=1", status_code=303)

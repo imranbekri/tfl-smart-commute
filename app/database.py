@@ -50,8 +50,8 @@ def add_journey_to_db(name: str, origin: str, destination: str, lines: list[str]
         conn.close()
 
 
-def update_journey_in_db(journey_id: int, name: str, origin: str, destination: str, lines: list[str]) -> None:
-    """Update an existing journey in the SQLite database."""
+def update_journey_in_db(journey_id: int, name: str, origin: str, destination: str, lines: list[str]) -> int:
+    """Update an existing journey in the SQLite database. Returns number of rows affected."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -65,6 +65,7 @@ def update_journey_in_db(journey_id: int, name: str, origin: str, destination: s
             (name, origin, destination, lines_str, journey_id),
         )
         conn.commit()
+        return cursor.rowcount
     finally:
         conn.close()
 
