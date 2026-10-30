@@ -101,3 +101,26 @@ def get_all_journeys() -> list[dict]:
         return result
     finally:
         conn.close()
+
+
+def get_journey_by_id(journey_id: int) -> dict | None:
+    """Load a single journey from the SQLite database by its id."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name, origin, destination, lines FROM journeys WHERE id = ?",
+            (journey_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "origin": row["origin"],
+            "destination": row["destination"],
+            "lines": [ln.strip() for ln in (row["lines"] or "").split(",") if ln.strip()],
+        }
+    finally:
+        conn.close()
