@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.tfl import get_line_statuses, TfLError, TfLTimeoutError, TfLUnavailableError
-from app.database import init_db, add_journey_to_db, get_all_journeys, delete_journey_from_db, update_journey_in_db
+from app.database import init_db, add_journey_to_db, get_all_journeys, delete_journey_from_db, update_journey_in_db, get_journey_by_id
 
 app = FastAPI(title="TfL Smart Commute")
 templates = Jinja2Templates(directory="app/templates")
@@ -239,7 +239,7 @@ async def edit_journey(
     destination: str = Form(...),
     lines: str = Form(""),
 ):
-    """Update an existing journey (name, route and lines) with validation."""
+    """Update an existing journey (name, route and lines) with validation. Loads from SQLite."""
     name = name.strip()
     origin = origin.strip()
     destination = destination.strip()
@@ -259,7 +259,7 @@ async def edit_journey(
         form_errors.append("Origin and destination cannot be the same.")
 
     if form_errors:
-        # Re-render with errors
+        # Re-render with errors, loading existing data from SQLite for the form
         lines_data: list = []
         error: str | None = None
         try:
@@ -273,6 +273,20 @@ async def edit_journey(
         enriched = enrich_journeys(journeys, status_lookup)
         last_updated = datetime.now().strftime("%H:%M")
 
+        # Load the specific journey from SQLite to prefill the edit form
+        edit_data = None
+        edit_index = index
+        if 0 <= index < len(journeys):
+            jid = journeys[index].get("id")
+            if jid is not None:
+                edit_data = get_journey_by_id(jid)
+                if edit_data:
+                    # Override with the submitted (invalid) values so user sees what they typed
+                    edit_data["name"] = name
+                    edit_data["origin"] = origin
+                    edit_data["destination"] = destination
+                    edit_data["lines"] = lines_list
+
         return templates.TemplateResponse(
             "index.html",
             {
@@ -281,6 +295,8 @@ async def edit_journey(
                 "error": error,
                 "journeys": enriched,
                 "form_errors": form_errors,
+                "edit_data": edit_data,
+                "edit_index": edit_index,
                 "last_updated": last_updated,
             },
             status_code=400,
@@ -289,7 +305,10 @@ async def edit_journey(
     journey = journeys[index]
     journey_id = journey.get("id")
     if journey_id is not None:
-        update_journey_in_db(journey_id, name, origin, destination, lines_list)
+        # Explicitly load from SQLite before update to confirm it exists
+        existing = get_journey_by_id(journey_id)
+        if existing:
+            update_journey_in_db(journey_id, name, origin, destination, lines_list)
     # Reload full list from DB so in-memory cache stays in sync
     journeys[:] = get_all_journeys()
     return RedirectResponse(url="/?edited=1", status_code=303)
