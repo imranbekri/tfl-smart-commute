@@ -726,38 +726,32 @@
 </head>
 <body>
     <h1>TfL Smart Commute</h1>
-    <p class="subtitle">Live status for Tube, Overground, Elizabeth line and DLR</p>
+    <p class="subtitle">Live Tube, Overground, Elizabeth line & DLR status — updated at {{ last_updated }}</p>
 
     {% if message %}
-    <div class="message {{ msg_type or 'success' }}" role="status">
-        {{ message }}
-    </div>
+    <div class="message {{ msg_type }}">{{ message }}</div>
     {% endif %}
 
     {% if error %}
     <div class="card error">
         <h2>Unable to load line statuses</h2>
         <p>{{ error }}</p>
-        <p>Refresh the page in a minute to try again.</p>
     </div>
     {% endif %}
 
     {% if journeys %}
     {% set ns = namespace(affected=0, names=[]) %}
-    {% for journey in journeys %}
-        {% if journey.overall in ['minor', 'severe'] %}
+    {% for j in journeys %}
+        {% if j.overall in ('minor', 'severe') %}
             {% set ns.affected = ns.affected + 1 %}
-            {% set ns.names = ns.names + [journey.name] %}
+            {% set ns.names = ns.names + [j.name] %}
         {% endif %}
     {% endfor %}
-    <div class="journey-summary {{ 'affected' if ns.affected > 0 else 'good' }}" role="status" aria-live="polite">
+    <div class="journey-summary {% if ns.affected > 0 %}affected{% else %}good{% endif %}">
         {% if ns.affected == 0 %}
-            All your journeys are currently running smoothly.
-        {% elif ns.affected == 1 %}
-            <span class="count">1</span> journey is affected.
-            <span class="names">{{ ns.names[0] }}</span>
+            All your journeys look clear right now.
         {% else %}
-            <span class="count">{{ ns.affected }}</span> journeys are affected.
+            <span class="count">{{ ns.affected }}</span> journey{% if ns.affected != 1 %}s{% endif %} affected.
             <span class="names">{{ ns.names | join(', ') }}</span>
         {% endif %}
     </div>
@@ -811,7 +805,7 @@
 
     <div class="card">
         <h2>Your journeys{% if journeys %} ({{ journeys|length }}){% endif %}</h2>
-        <p class="hint" style="margin-top:-8px; margin-bottom:16px;">Journeys are stored in memory and reset when the server restarts.</p>
+        <p class="hint" style="margin-top:-8px; margin-bottom:16px;">Journeys are stored in SQLite and persist across server restarts.</p>
         {% if journeys %}
         <div class="journey-list">
             {% for journey in journeys %}
@@ -820,13 +814,13 @@
                     <div class="journey-title-block">
                         <div class="journey-name">{{ journey.name }}</div>
                         <div class="journey-route">
-                            <span>{{ journey.origin }}</span>
+                            {{ journey.origin }}
                             <span class="arrow">→</span>
-                            <span>{{ journey.destination }}</span>
+                            {{ journey.destination }}
                         </div>
                     </div>
                     {% if journey.overall == 'good' %}
-                    <span class="journey-badge good" title="All listed lines running a good service">Not affected</span>
+                    <span class="journey-badge good" title="All lines on this journey have good service">Clear</span>
                     {% elif journey.overall == 'minor' %}
                     <span class="journey-badge minor" title="One or more lines have minor disruptions">Affected</span>
                     {% elif journey.overall == 'severe' %}
@@ -862,16 +856,16 @@
                         <button type="submit" class="delete-btn" onclick="return confirm('Delete this journey? This cannot be undone.');">Delete</button>
                     </form>
                 </div>
-                <form method="post" action="/edit-journey" class="edit-form" id="edit-form-{{ loop.index0 }}" style="display:none; margin-top:12px;">
+                <form method="post" action="/edit-journey" class="edit-form" id="edit-form-{{ loop.index0 }}" style="display:{% if edit_index is defined and edit_index == loop.index0 %}flex{% else %}none{% endif %}; margin-top:12px;">
                     <input type="hidden" name="index" value="{{ loop.index0 }}">
                     <label>Name</label>
-                    <input type="text" name="name" value="{{ journey.name }}" required minlength="2" maxlength="60" autocomplete="off">
+                    <input type="text" name="name" value="{% if edit_index is defined and edit_index == loop.index0 and edit_data %}{{ edit_data.name }}{% else %}{{ journey.name }}{% endif %}" required minlength="2" maxlength="60" autocomplete="off">
                     <label>From</label>
-                    <input type="text" name="origin" value="{{ journey.origin }}" required minlength="2" maxlength="80" autocomplete="off">
+                    <input type="text" name="origin" value="{% if edit_index is defined and edit_index == loop.index0 and edit_data %}{{ edit_data.origin }}{% else %}{{ journey.origin }}{% endif %}" required minlength="2" maxlength="80" autocomplete="off">
                     <label>To</label>
-                    <input type="text" name="destination" value="{{ journey.destination }}" required minlength="2" maxlength="80" autocomplete="off">
+                    <input type="text" name="destination" value="{% if edit_index is defined and edit_index == loop.index0 and edit_data %}{{ edit_data.destination }}{% else %}{{ journey.destination }}{% endif %}" required minlength="2" maxlength="80" autocomplete="off">
                     <label>Lines (comma-separated, optional)</label>
-                    <input type="text" name="lines" value="{{ journey.lines | join(', ') }}" maxlength="120" autocomplete="off">
+                    <input type="text" name="lines" value="{% if edit_index is defined and edit_index == loop.index0 and edit_data %}{{ edit_data.lines | join(', ') }}{% else %}{{ journey.lines | join(', ') }}{% endif %}" maxlength="120" autocomplete="off">
                     <div style="display:flex; gap:8px; margin-top:8px;">
                         <button type="submit">Update journey</button>
                         <button type="button" onclick="toggleEdit({{ loop.index0 }})">Cancel</button>
@@ -889,54 +883,33 @@
         <h2>Live Line Statuses</h2>
         {% if lines %}
             <div class="filters">
-                <button class="filter-btn active" type="button" data-filter="all">All lines</button>
-                <button class="filter-btn" type="button" data-filter="disruptions">Disruptions only</button>
+                <button type="button" class="filter-btn active" data-filter="all">All lines</button>
+                <button type="button" class="filter-btn" data-filter="disruptions">Disruptions only</button>
             </div>
-
-            {% set ns = namespace(good_count=0) %}
+            {% set disrupted = lines | selectattr('lineStatuses', 'defined') | list %}
+            {% set ns2 = namespace(bad=0) %}
             {% for line in lines %}
-                {% set status = line.lineStatuses[0] if line.lineStatuses else none %}
-                {% set desc = status.statusSeverityDescription if status else 'Unknown' %}
-                {% if desc == 'Good Service' %}
-                    {% set ns.good_count = ns.good_count + 1 %}
+                {% set st = (line.lineStatuses[0].statusSeverityDescription if line.lineStatuses else 'Unknown') %}
+                {% if st != 'Good Service' %}
+                    {% set ns2.bad = ns2.bad + 1 %}
                 {% endif %}
             {% endfor %}
-
             <div class="summary">
-                {{ ns.good_count }} of {{ lines|length }} lines have a good service
-                {% set disrupted = lines|length - ns.good_count %}
-                {% if disrupted > 0 %}
-                <span class="issues"> · {{ disrupted }} line{{ 's' if disrupted != 1 else '' }} with disruptions</span>
-                {% endif %}
-                {% if last_updated %}
-                    <span style="float:right; font-weight:400; color:var(--text-muted);">Updated {{ last_updated }}</span>
-                {% endif %}
+                {{ lines|length }} lines · <span class="issues">{{ ns2.bad }} with disruptions</span>
             </div>
-
-            <div class="line-list" id="line-list">
+            <div class="line-list">
                 {% for line in lines %}
-                    {% set status = line.lineStatuses[0] if line.lineStatuses else none %}
-                    {% set desc = status.statusSeverityDescription if status else 'Unknown' %}
-                    {% set reason = status.reason if status and status.reason else '' %}
-                    {% set severity = 'good' %}
-                    {% if desc in ['Minor Delays', 'Reduced Service', 'Special Service', 'Change of frequency'] %}
-                        {% set severity = 'minor' %}
-                    {% elif desc in ['Severe Delays', 'Part Suspended', 'Suspended', 'Part Closure', 'Part Closed', 'Issues Reported'] %}
-                        {% set severity = 'severe' %}
-                    {% elif desc in ['Closed', 'Planned Closure', 'No Service', 'Not Running'] %}
-                        {% set severity = 'closed' %}
-                    {% elif desc != 'Good Service' %}
-                        {% set severity = 'minor' %}
-                    {% endif %}
-                    <div class="line" data-severity="{{ severity }}">
-                        <div class="line-name">{{ line.name }}</div>
-                        <div class="status-block">
-                            <span class="status {{ severity }}">{{ desc }}</span>
-                            {% if reason %}
-                            <div class="reason">{{ reason | truncate(160) }}</div>
-                            {% endif %}
-                        </div>
+                {% set st = (line.lineStatuses[0].statusSeverityDescription if line.lineStatuses else 'Unknown') %}
+                {% set sev = 'good' if st == 'Good Service' else ('minor' if st in ['Minor Delays', 'Reduced Service', 'Special Service', 'Change of frequency'] else ('severe' if st in ['Severe Delays', 'Part Suspended', 'Suspended', 'Part Closure', 'Part Closed', 'Issues Reported'] else ('closed' if st in ['Closed', 'Planned Closure', 'No Service', 'Not Running'] else 'minor'))) %}
+                <div class="line" data-severity="{{ sev }}">
+                    <div class="line-name">{{ line.name }}</div>
+                    <div class="status-block">
+                        <span class="status {{ sev }}">{{ st }}</span>
+                        {% if line.lineStatuses and line.lineStatuses[0].reason %}
+                        <div class="reason">{{ line.lineStatuses[0].reason | truncate(140) }}</div>
+                        {% endif %}
                     </div>
+                </div>
                 {% endfor %}
             </div>
             <div class="no-results" id="no-results">No lines match the current filter.</div>
@@ -1000,64 +973,66 @@
             const destInput = document.getElementById('destination');
             const submitBtn = document.getElementById('submit-btn');
 
-            function showError(input, message) {
-                const errEl = document.getElementById(input.id + '-error');
-                if (errEl) {
-                    errEl.textContent = message;
-                    errEl.classList.add('visible');
+            function showError(input, errorId, msg) {
+                const el = document.getElementById(errorId);
+                if (msg) {
+                    input.classList.add('invalid');
+                    el.textContent = msg;
+                    el.classList.add('visible');
+                } else {
+                    input.classList.remove('invalid');
+                    el.textContent = '';
+                    el.classList.remove('visible');
                 }
-                input.classList.add('invalid');
-                input.setAttribute('aria-invalid', 'true');
             }
 
-            function clearError(input) {
-                const errEl = document.getElementById(input.id + '-error');
-                if (errEl) {
-                    errEl.textContent = '';
-                    errEl.classList.remove('visible');
-                }
-                input.classList.remove('invalid');
-                input.removeAttribute('aria-invalid');
-            }
-
-            function validateField(input) {
-                const value = input.value.trim();
-                if (value.length < 2) {
-                    showError(input, 'Must be at least 2 characters.');
-                    return false;
-                }
-                clearError(input);
-                return true;
-            }
-
-            function validateForm() {
+            function validate() {
                 let valid = true;
-                if (!validateField(nameInput)) valid = false;
-                if (!validateField(originInput)) valid = false;
-                if (!validateField(destInput)) valid = false;
-                if (originInput.value.trim().toLowerCase() === destInput.value.trim().toLowerCase() && originInput.value.trim().length >= 2) {
-                    showError(destInput, 'Origin and destination cannot be the same.');
+                const name = nameInput.value.trim();
+                const origin = originInput.value.trim();
+                const dest = destInput.value.trim();
+
+                if (name.length < 2) {
+                    showError(nameInput, 'name-error', 'Journey name must be at least 2 characters.');
                     valid = false;
+                } else {
+                    showError(nameInput, 'name-error', '');
                 }
+
+                if (origin.length < 2) {
+                    showError(originInput, 'origin-error', 'Origin must be at least 2 characters.');
+                    valid = false;
+                } else {
+                    showError(originInput, 'origin-error', '');
+                }
+
+                if (dest.length < 2) {
+                    showError(destInput, 'destination-error', 'Destination must be at least 2 characters.');
+                    valid = false;
+                } else if (origin.toLowerCase() === dest.toLowerCase() && origin.length >= 2) {
+                    showError(destInput, 'destination-error', 'Origin and destination cannot be the same.');
+                    valid = false;
+                } else {
+                    showError(destInput, 'destination-error', '');
+                }
+
                 submitBtn.disabled = !valid;
                 return valid;
             }
 
             [nameInput, originInput, destInput].forEach(function (input) {
-                input.addEventListener('input', validateForm);
-                input.addEventListener('blur', function () { validateField(input); validateForm(); });
+                input.addEventListener('input', validate);
+                input.addEventListener('blur', validate);
             });
 
             form.addEventListener('submit', function (e) {
-                if (!validateForm()) {
+                if (!validate()) {
                     e.preventDefault();
-                    const firstInvalid = form.querySelector('.invalid');
-                    if (firstInvalid) firstInvalid.focus();
                 }
             });
 
-            // Initial check if form was re-rendered with errors
-            validateForm();
+            // Initial validation state
+            validate();
         });
     </script>
 </body>
