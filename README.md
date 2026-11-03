@@ -52,6 +52,3 @@ tfl-smart-commute/
 └── README.md
 ```
 
-## Licence
-
-Personal project / educational use.
