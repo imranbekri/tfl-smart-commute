@@ -13,7 +13,7 @@ templates = Jinja2Templates(directory="app/templates")
 # Initialise the SQLite database and journeys table on startup
 init_db()
 
-# Load existing journeys from SQLite (in-memory cache for the session)
+# In-memory cache kept in sync with SQLite; home always reloads from DB for consistency
 journeys: list[dict] = get_all_journeys()
 
 
@@ -116,7 +116,7 @@ async def home(request: Request):
         error = "Something went wrong while fetching line statuses. Please try again later."
 
     status_lookup = build_status_lookup(lines)
-    enriched = enrich_journeys(journeys, status_lookup)
+    enriched = enrich_journeys(get_all_journeys(), status_lookup)
 
     # Simple success messages from redirects
     message = None
@@ -184,7 +184,7 @@ async def add_journey(
             error = "Something went wrong while fetching line statuses. Please try again later."
 
         status_lookup = build_status_lookup(lines_data)
-        enriched = enrich_journeys(journeys, status_lookup)
+        enriched = enrich_journeys(get_all_journeys(), status_lookup)
 
         last_updated = datetime.now().strftime("%H:%M")
 
@@ -267,7 +267,7 @@ async def edit_journey(
             error = "Something went wrong while fetching line statuses. Please try again later."
 
         status_lookup = build_status_lookup(lines_data)
-        enriched = enrich_journeys(journeys, status_lookup)
+        enriched = enrich_journeys(get_all_journeys(), status_lookup)
         last_updated = datetime.now().strftime("%H:%M")
 
         # Prefill the edit form with the submitted (invalid) values
