@@ -1,9 +1,15 @@
-"""SQLite database setup for persistent journey storage."""
+"""SQLite database setup for persistent journey storage.
+
+The database file is stored in the project root (next to the app/ directory)
+so journeys survive restarts regardless of the working directory from which
+the server is started.
+"""
 
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("journeys.db")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "journeys.db"
 
 
 def get_connection() -> sqlite3.Connection:
