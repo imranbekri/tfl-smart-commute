@@ -127,9 +127,12 @@ async def home(request: Request):
     elif request.query_params.get("deleted"):
         message = "Journey deleted."
         msg_type = "success"
-    elif request.query_params.get("edited"):
+    elif request.query_params.get("edited") == "1":
         message = "Journey updated."
         msg_type = "success"
+    elif request.query_params.get("edited") == "0":
+        message = "Journey could not be updated."
+        msg_type = "error"
 
     last_updated = datetime.now().strftime("%H:%M")
 
