@@ -1,20 +1,40 @@
 from datetime import datetime
+import logging
 
 from fastapi import FastAPI, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.tfl import get_line_statuses, TfLError, TfLTimeoutError, TfLUnavailableError
-from app.database import init_db, add_journey_to_db, get_all_journeys, delete_journey_from_db, update_journey_in_db, get_journey_by_id
+from app.database import (
+    init_db,
+    add_journey_to_db,
+    get_all_journeys,
+    delete_journey_from_db,
+    update_journey_in_db,
+    get_journey_by_id,
+    DatabaseError,
+)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="TfL Smart Commute")
 templates = Jinja2Templates(directory="app/templates")
 
 # Initialise the SQLite database and journeys table on startup
-init_db()
+try:
+    init_db()
+except DatabaseError as e:
+    logger.error("Database initialisation failed: %s", e)
+    # Continue so the app can still serve status (journeys will fail gracefully)
 
 # In-memory cache kept in sync with SQLite; home always reloads from DB for consistency
-journeys: list[dict] = get_all_journeys()
+try:
+    journeys: list[dict] = get_all_journeys()
+except DatabaseError:
+    journeys = []
+    logger.error("Could not load journeys on startup")
 
 
 def _severity_from_description(desc: str) -> str:
@@ -98,6 +118,15 @@ def enrich_journeys(journeys_list: list[dict], status_lookup: dict[str, dict]) -
     return enriched
 
 
+def _load_journeys_safe() -> tuple[list[dict], str | None]:
+    """Load journeys, returning an empty list and error message on failure."""
+    try:
+        return get_all_journeys(), None
+    except DatabaseError as e:
+        logger.error("Failed to load journeys: %s", e)
+        return [], e.user_message
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     lines: list = []
@@ -114,9 +143,17 @@ async def home(request: Request):
     except Exception:
         # Catch-all so the page never crashes
         error = "Something went wrong while fetching line statuses. Please try again later."
+        logger.exception("Unexpected error fetching line statuses")
+
+    journeys_list, db_error = _load_journeys_safe()
+    if db_error and not error:
+        error = db_error
+    elif db_error:
+        # Prefer showing both if needed, but keep it simple
+        error = f"{error} Also: {db_error}"
 
     status_lookup = build_status_lookup(lines)
-    enriched = enrich_journeys(get_all_journeys(), status_lookup)
+    enriched = enrich_journeys(journeys_list, status_lookup)
 
     # Simple success messages from redirects
     message = None
@@ -132,6 +169,9 @@ async def home(request: Request):
         msg_type = "success"
     elif request.query_params.get("edited") == "0":
         message = "Journey could not be updated."
+        msg_type = "error"
+    elif request.query_params.get("db_error"):
+        message = "A database error occurred. Please try again."
         msg_type = "error"
 
     last_updated = datetime.now().strftime("%H:%M")
@@ -185,9 +225,14 @@ async def add_journey(
             error = e.user_message
         except Exception:
             error = "Something went wrong while fetching line statuses. Please try again later."
+            logger.exception("Unexpected error fetching line statuses")
+
+        journeys_list, db_error = _load_journeys_safe()
+        if db_error and not error:
+            error = db_error
 
         status_lookup = build_status_lookup(lines_data)
-        enriched = enrich_journeys(get_all_journeys(), status_lookup)
+        enriched = enrich_journeys(journeys_list, status_lookup)
 
         last_updated = datetime.now().strftime("%H:%M")
 
@@ -211,10 +256,52 @@ async def add_journey(
         )
 
     # Persist to SQLite
-    add_journey_to_db(name, origin, destination, lines_list)
-    # Reload full list from DB so in-memory cache stays in sync
-    journeys[:] = get_all_journeys()
-    return RedirectResponse(url="/?saved=1", status_code=303)
+    try:
+        add_journey_to_db(name, origin, destination, lines_list)
+        # Reload full list from DB so in-memory cache stays in sync
+        journeys[:] = get_all_journeys()
+        return RedirectResponse(url="/?saved=1", status_code=303)
+    except DatabaseError as e:
+        logger.error("Failed to save journey: %s", e)
+        form_errors.append(e.user_message)
+        # Fall through to re-render with the error
+
+    # Re-render on DB failure
+    lines_data: list = []
+    error: str | None = None
+    try:
+        lines_data = await get_line_statuses()
+    except (TfLTimeoutError, TfLUnavailableError, TfLError) as e:
+        error = e.user_message
+    except Exception:
+        error = "Something went wrong while fetching line statuses. Please try again later."
+
+    journeys_list, db_error = _load_journeys_safe()
+    if db_error and not error:
+        error = db_error
+
+    status_lookup = build_status_lookup(lines_data)
+    enriched = enrich_journeys(journeys_list, status_lookup)
+    last_updated = datetime.now().strftime("%H:%M")
+
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "lines": lines_data,
+            "error": error,
+            "journeys": enriched,
+            "form_errors": form_errors,
+            "form_data": {
+                "name": name,
+                "origin": origin,
+                "destination": destination,
+                "lines": lines,
+            },
+            "last_updated": last_updated,
+        },
+        status_code=500,
+    )
 
 
 @app.post("/delete-journey")
@@ -224,9 +311,13 @@ async def delete_journey(id: int = Form(...)):
         delete_journey_from_db(id)
         # Reload full list from DB so in-memory cache stays in sync
         journeys[:] = get_all_journeys()
+        return RedirectResponse(url="/?deleted=1", status_code=303)
+    except DatabaseError as e:
+        logger.error("Failed to delete journey %s: %s", id, e)
+        return RedirectResponse(url="/?db_error=1", status_code=303)
     except Exception:
-        pass  # Ignore invalid ids
-    return RedirectResponse(url="/?deleted=1", status_code=303)
+        logger.exception("Unexpected error deleting journey")
+        return RedirectResponse(url="/?db_error=1", status_code=303)
 
 
 @app.post("/edit-journey")
@@ -246,8 +337,13 @@ async def edit_journey(
 
     form_errors: list[str] = []
 
-    existing = get_journey_by_id(id)
-    if not existing:
+    try:
+        existing = get_journey_by_id(id)
+    except DatabaseError as e:
+        form_errors.append(e.user_message)
+        existing = None
+
+    if not existing and not form_errors:
         form_errors.append("Invalid journey.")
     if len(name) < 2:
         form_errors.append("Journey name must be at least 2 characters.")
@@ -268,9 +364,14 @@ async def edit_journey(
             error = e.user_message
         except Exception:
             error = "Something went wrong while fetching line statuses. Please try again later."
+            logger.exception("Unexpected error fetching line statuses")
+
+        journeys_list, db_error = _load_journeys_safe()
+        if db_error and not error:
+            error = db_error
 
         status_lookup = build_status_lookup(lines_data)
-        enriched = enrich_journeys(get_all_journeys(), status_lookup)
+        enriched = enrich_journeys(journeys_list, status_lookup)
         last_updated = datetime.now().strftime("%H:%M")
 
         # Prefill the edit form with the submitted (invalid) values
@@ -298,9 +399,54 @@ async def edit_journey(
         )
 
     # Update in DB
-    rows = update_journey_in_db(id, name, origin, destination, lines_list)
-    # Reload full list from DB so in-memory cache stays in sync
-    journeys[:] = get_all_journeys()
-    if rows == 0:
-        return RedirectResponse(url="/?edited=0", status_code=303)
-    return RedirectResponse(url="/?edited=1", status_code=303)
+    try:
+        rows = update_journey_in_db(id, name, origin, destination, lines_list)
+        # Reload full list from DB so in-memory cache stays in sync
+        journeys[:] = get_all_journeys()
+        if rows == 0:
+            return RedirectResponse(url="/?edited=0", status_code=303)
+        return RedirectResponse(url="/?edited=1", status_code=303)
+    except DatabaseError as e:
+        logger.error("Failed to update journey %s: %s", id, e)
+        form_errors.append(e.user_message)
+
+        # Re-render on failure
+        lines_data: list = []
+        error: str | None = None
+        try:
+            lines_data = await get_line_statuses()
+        except (TfLTimeoutError, TfLUnavailableError, TfLError) as e2:
+            error = e2.user_message
+        except Exception:
+            error = "Something went wrong while fetching line statuses. Please try again later."
+
+        journeys_list, db_error = _load_journeys_safe()
+        if db_error and not error:
+            error = db_error
+
+        status_lookup = build_status_lookup(lines_data)
+        enriched = enrich_journeys(journeys_list, status_lookup)
+        last_updated = datetime.now().strftime("%H:%M")
+
+        edit_data = {
+            "id": id,
+            "name": name,
+            "origin": origin,
+            "destination": destination,
+            "lines": lines_list,
+        }
+
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "lines": lines_data,
+                "error": error,
+                "journeys": enriched,
+                "form_errors": form_errors,
+                "edit_data": edit_data,
+                "edit_id": id,
+                "last_updated": last_updated,
+            },
+            status_code=500,
+        )
