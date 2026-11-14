@@ -4,6 +4,17 @@ A practical London commute companion built with **Python**, **FastAPI** and **Ji
 
 Quickly see live status for Tube, Overground, Elizabeth line and DLR, and check whether your saved journeys are affected by disruptions.
 
+## Screenshots
+
+### Live Status Page
+![Home](screenshots/home.png)
+
+### Disruptions Filter
+![Disruptions](screenshots/disruptions.png)
+
+### Saved Journeys
+![Journeys](screenshots/journeys.png)
+
 ## Features
 
 - Live TfL line status with clean summary and detailed list
@@ -50,6 +61,7 @@ tfl-smart-commute/
 │   ├── tfl.py           # TfL API client
 │   └── templates/
 │       └── index.html   # Single-page UI
+├── screenshots/
 ├── requirements.txt
 ├── .gitignore
 └── README.md
